@@ -1,0 +1,95 @@
+var rp = require('request-promise');
+var express = require('express');
+var app = express();
+
+app.set('view engine', 'ejs');
+
+app.get('/character/:name', function(req, res){
+	var name = req.params.name;
+	if (name === undefined) {
+		res.send('Name is required');
+		return;
+	}
+	getCharacterByName('http://swapi.co/api/people', req.params.name,res);
+});
+
+app.get('/characters', function(req, res){
+	var sort = req.param('sort');
+	getSortedCharacters('http://swapi.co/api/people',sort,[],res);	
+});
+
+app.get('/planetresidents', function(req, res){
+	getCharactersByPlanet('http://swapi.co/api/people',[],res);
+});
+
+function getCharacterByName(url, name, res) {
+	rp(url).then(function(response) {
+		var response = JSON.parse(response);
+		var characters = response.results;
+		for (var i in characters) {
+			if (characters[i].name.toLowerCase().indexOf(name) !== -1) {
+				res.render('character',characters[i]);
+				break;
+			}
+		}
+		if (response.next !== null) {
+			getCharacterByName(response.next,name,res);
+		} else {
+			res.send('Not Found');
+		}
+	})
+}
+
+function getSortedCharacters(url,sort,characterList,res) {
+	rp(url).then(function(response) {
+		var response = JSON.parse(response);
+		var characters = response.results;
+		if (response.next !== null) {
+			getSortedCharacters(response.next,sort,characterList.concat(characters),res);
+		} else {
+			characterList.sort(function(a,b) {
+				if (typeof(a[sort]) === 'string') {
+					return a[sort].localeCompare(b[sort]);
+				}
+				return a[sort] - b[sort];
+			});
+			res.send(JSON.stringify(characterList.slice(0,50)));
+		}
+	});
+}
+
+function getCharactersByPlanet(url, characterList, res) {
+	rp(url).then(function(response) {
+		var response = JSON.parse(response);
+		var characters = response.results;
+		if (response.next !== null) {
+			getCharactersByPlanet(response.next,characterList.concat(characters),res);
+		} else {
+			mapPlanetsToCharacters('http://swapi.co/api/planets',[],characterList,res);
+		}
+	});
+}
+
+function mapPlanetsToCharacters(url, planetList, characterList, res) {
+	rp(url).then(function(response) {
+		var response = JSON.parse(response);
+		var planets = response.results;
+		if (response.next !== null) {
+			mapPlanetsToCharacters(response.next,planetList.concat(planets),characterList,res);
+		} else {
+			var planetMap = {};
+			for (var i in planetList) {
+				planetMap[planetList[i].name] = [];
+				for (var j in characterList) {
+					if (characterList[j].homeworld === planetList[i].url) {
+						planetMap[planetList[i].name].push(characterList[j].name);
+					}
+				}
+			}
+			res.send(JSON.stringify(planetMap));
+		}
+	});
+}
+
+
+app.listen(3000);
